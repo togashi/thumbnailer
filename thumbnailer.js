@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+
+const watcher = require('@atom/watcher')
+const path = require('path')
+const template = require('lodash.template')
+const sharp = require('sharp')
+const chalk = require('chalk')
+
+const greenOK = chalk.green('OK')
+const yellowERR = chalk.yellow('ERROR')
+
+const cli = require('commander')
+
+cli.version('20191226')
+    .description('automatically thumbnail generator')
+    .arguments('<source_dir> <output_filename_template>')
+    .option('-x, --width <width>', 'pixel width of output')
+    .option('-y, --height <height>', 'pixel height of output')
+    .option('-s, --scale <scale>', 'scale')
+    .option('-X, --exclude <pattern>', 'excluded pattern of filename')
+    .option('--pre <pre-processing-script-filename>', 'specify pre-processing script file')
+    .option('--post <post-processing-script-filename>', 'specify post-processing script file')
+    .action(main)
+    .parse(process.argv)
+
+function loadModule(src) {
+    if (!src) {
+        return src
+    } else if (/^\//.test(src)) {
+        return require(src)
+    } else {
+        return require(path.resolve(process.cwd(), src))
+    }
+}
+
+const preprocessor = loadModule(cli.pre)
+const postprocessor = loadModule(cli.post)
+
+async function processOne(src, dst) {
+    try {
+        const image = sharp(src)
+        if (preprocessor) {
+            try {
+                preprocessor(image)
+            } catch (err) {
+                console.error(yellowERR, err)
+            }
+        }
+        if (cli.width || cli.height) {
+            await image.resize(cli.width, cli.height)
+        } else {
+            const scale = cli.scale || 0.25
+            const metadata = await image.metadata()
+            await image.resize(metadata.width * scale)
+        }
+        if (postprocessor) {
+            try {
+                postprocessor(image)
+            } catch (err) {
+                console.error(yellowERR, err)
+            }
+        }
+        await image.toFile(dst)
+        console.info(chalk.cyan(`${src} => ${dst}:`), greenOK)
+    } catch (err) {
+        console.error(chalk.cyan(`${src} => ${dst}:`), yellowERR, err)
+    }
+}
+
+function pathComponents(src) {
+    return {
+        path: src,
+        ...path.parse(src)
+    }
+}
+
+async function main(src, dstSpec) {
+    const dstTemplate = template(dstSpec, {
+        interpolate: /{([\s\S]+?)}/g
+    })
+    const excludePat = cli.exclude ? RegExp(cli.exclude) : null
+    const watch = await watcher.watchPath(src, {}, events => {
+        for (const event of events) {
+            if (excludePat && excludePat.test(event.path)) continue
+            if (event.action !== 'modified') continue
+            if (event.kind !== 'file') continue
+            const pc = pathComponents(event.path)
+            const dst = dstTemplate(pc)
+            processOne(event.path, dst)
+        }
+    })
+
+    watch.onDidError(err => {
+        console.error(yellowERR, err)
+    })
+}
