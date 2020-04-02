@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-const watcher = require('@atom/watcher')
+const watcher = require('@parcel/watcher')
 const path = require('path')
+const fs = require('fs')
 const template = require('lodash.template')
 const sharp = require('sharp')
 const chalk = require('chalk')
@@ -11,7 +12,7 @@ const yellowERR = chalk.yellow('ERROR')
 
 const cli = require('commander')
 
-cli.version('20191226')
+cli.version('20200402')
     .description('automatically thumbnail generator')
     .arguments('<source_dir> <output_filename_template>')
     .option('-x, --width <width>', 'pixel width of output')
@@ -79,18 +80,18 @@ async function main(src, dstSpec) {
         interpolate: /{([\s\S]+?)}/g
     })
     const excludePat = cli.exclude ? RegExp(cli.exclude) : null
-    const watch = await watcher.watchPath(src, {}, events => {
+    await watcher.subscribe(src, (err, events) => {
+        if (err) {
+            console.error(yellowERR, err)
+            return
+        }
         for (const event of events) {
             if (excludePat && excludePat.test(event.path)) continue
-            if (event.action !== 'modified') continue
-            if (event.kind !== 'file') continue
+            if (event.type !== 'update') continue
+            if (!fs.statSync(event.path).isFile()) continue
             const pc = pathComponents(event.path)
             const dst = dstTemplate(pc)
             processOne(event.path, dst)
         }
-    })
-
-    watch.onDidError(err => {
-        console.error(yellowERR, err)
     })
 }
