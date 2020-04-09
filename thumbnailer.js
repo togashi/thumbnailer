@@ -3,6 +3,7 @@
 const watcher = require('@parcel/watcher')
 const path = require('path')
 const fs = require('fs')
+const { inspect } = require('util')
 const template = require('lodash.template')
 const sharp = require('sharp')
 const chalk = require('chalk')
@@ -12,7 +13,7 @@ const yellowERR = chalk.yellow('ERROR')
 
 const cli = require('commander')
 
-cli.version('20200402')
+cli.version('20200409')
     .description('automatically thumbnail generator')
     .arguments('<source_dir> <output_filename_template>')
     .option('-x, --width <width>', 'pixel width of output')
@@ -21,6 +22,7 @@ cli.version('20200402')
     .option('-X, --exclude <pattern>', 'excluded pattern of filename')
     .option('--pre <pre-processing-script-filename>', 'specify pre-processing script file')
     .option('--post <post-processing-script-filename>', 'specify post-processing script file')
+    .option('-v, --verbose', 'make output verbosely')
     .action(main)
     .parse(process.argv)
 
@@ -36,6 +38,10 @@ function loadModule(src) {
 
 const preprocessor = loadModule(cli.pre)
 const postprocessor = loadModule(cli.post)
+
+function verboseOut(...args) {
+    console.info(...args.map(a => chalk.gray(typeof a === 'string' ? a : inspect(a))))
+}
 
 async function processOne(src, dst) {
     try {
@@ -86,10 +92,14 @@ async function main(src, dstSpec) {
             return
         }
         for (const event of events) {
-            if (excludePat && excludePat.test(event.path)) continue
+            if (cli.verbose) verboseOut('event:', event)
             if (event.type !== 'update') continue
             if (!fs.statSync(event.path).isFile()) continue
             const pc = pathComponents(event.path)
+            if (cli.verbose && excludePat) verboseOut('exclude test:', {
+                pattern: excludePat, filename: pc.base
+            })
+            if (excludePat && excludePat.test(pc.base)) continue
             const dst = dstTemplate(pc)
             processOne(event.path, dst)
         }
