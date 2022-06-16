@@ -17,6 +17,6 @@
     "chalk": "^3.0.0",
     "commander": "^4.0.1",
     "lodash.template": "^4.5.0",
-    "sharp": "^0.25.2"
+    "sharp": "^0.30.5"
   }
 }
